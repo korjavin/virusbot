@@ -70,8 +70,20 @@ func (s *HeuristicStrategy) DecideMoves(state *game.GameState, count int) []game
 		return nil
 	}
 
+	// Filter out moves to already occupied cells (defensive check)
+	filteredMoves := make([]game.Move, 0, len(validMoves))
+	for _, move := range validMoves {
+		if state.Board.IsEmpty(move.Position) || state.Board.IsOpponent(move.Position, player.ID) {
+			filteredMoves = append(filteredMoves, move)
+		}
+	}
+
+	if len(filteredMoves) == 0 {
+		return nil
+	}
+
 	// Score each move
-	scoredMoves := s.scoreMoves(validMoves, state)
+	scoredMoves := s.scoreMoves(filteredMoves, state)
 
 	// Select top moves with diversity
 	selected := s.selectDiverseMoves(scoredMoves, count)

@@ -207,8 +207,13 @@ func TestValidMove(t *testing.T) {
 	board.BasePos[0] = Position{Row: 0, Col: 0}
 	board.BasePos[1] = Position{Row: 4, Col: 4}
 
+	// Set up player 0's territory
 	board.SetCell(Position{Row: 0, Col: 0}, protocol.CellPlayer1)
 	board.SetCell(Position{Row: 0, Col: 1}, protocol.CellPlayer1)
+
+	// Set up player 1's territory (for attack test)
+	board.SetCell(Position{Row: 4, Col: 4}, protocol.CellPlayer2)
+	board.SetCell(Position{Row: 4, Col: 3}, protocol.CellPlayer2)
 
 	tests := []struct {
 		name     string
@@ -226,7 +231,7 @@ func TestValidMove(t *testing.T) {
 			name:     "Valid attack move",
 			move:     Move{Position: Position{Row: 4, Col: 3}, Type: MoveAttack, FromCell: Position{Row: 4, Col: 4}},
 			playerID: 1,
-			valid:    true,
+			valid:    false, // Invalid because (4,3) is also player 1's cell, not an opponent's cell
 		},
 		{
 			name:     "Invalid - from disconnected cell",

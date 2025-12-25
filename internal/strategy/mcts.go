@@ -69,9 +69,21 @@ func (s *MCTSStrategy) DecideMoves(state *game.GameState, count int) []game.Move
 		return nil
 	}
 
+	// Filter out moves to already occupied cells (defensive check)
+	filteredMoves := make([]game.Move, 0, len(validMoves))
+	for _, move := range validMoves {
+		if state.Board.IsEmpty(move.Position) || state.Board.IsOpponent(move.Position, player.ID) {
+			filteredMoves = append(filteredMoves, move)
+		}
+	}
+
+	if len(filteredMoves) == 0 {
+		return nil
+	}
+
 	// For 3 moves, we need to select the best combination
 	// Run MCTS to find the best moves
-	moves := s.runMCTS(state, validMoves, count)
+	moves := s.runMCTS(state, filteredMoves, count)
 
 	return moves
 }

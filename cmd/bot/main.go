@@ -16,6 +16,23 @@ import (
 	"virusbot/internal/strategy"
 )
 
+// isValidMove checks if a move is valid (target is empty or opponent's cell)
+func isValidMove(board [][]protocol.CellType, playerID int, row, col int) bool {
+	if row < 0 || row >= len(board) || col < 0 || col >= len(board[row]) {
+		return false
+	}
+	cell := board[row][col]
+	// Valid if empty or opponent's cell
+	if cell == protocol.CellEmpty {
+		return true
+	}
+	// Check if it's opponent's cell (player IDs are 1-4, cell types are 1-4)
+	if cell != protocol.CellNeutral && int(cell) != playerID+1 {
+		return true
+	}
+	return false
+}
+
 func main() {
 	// Parse command line flags
 	serverURL := flag.String("server", "", "WebSocket server URL (e.g., wss://vs.wandergeek.org/ws)")
@@ -164,9 +181,6 @@ func main() {
 					break
 				}
 
-				// Check if the previous move position is now occupied
-				log.Printf("Board state check - cell (8,9) = %d", state.Board[8][9])
-
 				// Get fresh strategy moves (1 at a time)
 				moves := strategy.DecideMoves(gs, 1)
 				if len(moves) == 0 {
@@ -176,6 +190,27 @@ func main() {
 
 				move := moves[0]
 				log.Printf("Strategy suggests: (%d, %d)", move.Position.Row, move.Position.Col)
+
+				// Double-check the move is valid before executing
+				if !isValidMove(state.Board, state.YourPlayerID, move.Position.Row, move.Position.Col) {
+					log.Printf("Skipping invalid move to (%d, %d) - cell is occupied by player %d",
+						move.Position.Row, move.Position.Col, state.Board[move.Position.Row][move.Position.Col])
+					// Get new moves excluding this invalid one
+					moves = strategy.DecideMoves(gs, 3)
+					foundValid := false
+					for _, m := range moves {
+						if isValidMove(state.Board, state.YourPlayerID, m.Position.Row, m.Position.Col) {
+							move = m
+							foundValid = true
+							break
+						}
+					}
+					if !foundValid {
+						log.Printf("No valid moves available")
+						break
+					}
+					log.Printf("Using alternative move: (%d, %d)", move.Position.Row, move.Position.Col)
+				}
 
 				if err := wsClient.MakeMove(move.Position.Row, move.Position.Col); err != nil {
 					log.Printf("Failed to make move: %v", err)
