@@ -3,7 +3,7 @@ version: "3.8"
 services:
   virusbot:
     # The image tag will be replaced by GitHub Actions workflow in the deploy branch
-    image: ghcr.io/korjavin/virusbot:latest
+    image: ghcr.io/korjavin/virusbot:41f24625273849666488cff4a396ceafb2de7325
     container_name: virusbot
     restart: unless-stopped
     environment:
