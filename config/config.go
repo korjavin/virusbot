@@ -22,8 +22,9 @@ type Config struct {
 	AutoCreate bool   `env:"VIRUSBOT_AUTO_CREATE"`
 
 	// Game behavior
-	MoveDelay time.Duration `env:"VIRUSBOT_MOVE_DELAY" default:"500ms"`
-	Debug     bool          `env:"VIRUSBOT_DEBUG"`
+	MoveDelay          time.Duration `env:"VIRUSBOT_MOVE_DELAY" default:"500ms"`
+	Debug              bool          `env:"VIRUSBOT_DEBUG"`
+	AutoAcceptChallenge bool         `env:"VIRUSBOT_AUTO_ACCEPT_CHALLENGE" default:"true"`
 
 	// Strategy selection
 	Strategy string `env:"VIRUSBOT_STRATEGY" default:"mcts"` // "heuristic" or "mcts"
@@ -56,13 +57,14 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		ServerURL:          getEnv("VIRUSBOT_SERVER_URL", "ws://localhost:8080/ws"),
-		BotName:            getEnv("VIRUSBOT_NAME", "VirusBot"),
-		LobbyID:            getEnv("VIRUSBOT_LOBBY", ""),
-		AutoJoin:           getEnvBool("VIRUSBOT_AUTO_JOIN"),
-		AutoCreate:         getEnvBool("VIRUSBOT_AUTO_CREATE"),
-		MoveDelay:          getEnvDuration("VIRUSBOT_MOVE_DELAY", 500*time.Millisecond),
-		Debug:              getEnvBool("VIRUSBOT_DEBUG"),
+		ServerURL:           getEnv("VIRUSBOT_SERVER_URL", "ws://localhost:8080/ws"),
+		BotName:             getEnv("VIRUSBOT_NAME", "VirusBot"),
+		LobbyID:             getEnv("VIRUSBOT_LOBBY", ""),
+		AutoJoin:            getEnvBool("VIRUSBOT_AUTO_JOIN"),
+		AutoCreate:          getEnvBool("VIRUSBOT_AUTO_CREATE"),
+		MoveDelay:           getEnvDuration("VIRUSBOT_MOVE_DELAY", 500*time.Millisecond),
+		Debug:               getEnvBool("VIRUSBOT_DEBUG"),
+		AutoAcceptChallenge: getEnvBool("VIRUSBOT_AUTO_ACCEPT_CHALLENGE"),
 		Strategy:           getEnv("VIRUSBOT_STRATEGY", "heuristic"),
 		MCTSIterations:     getEnvInt("VIRUSBOT_MCTS_ITERATIONS", 1000),
 		MCTSTimeLimit:      getEnvDuration("VIRUSBOT_MCTS_TIME_LIMIT", 1*time.Second),

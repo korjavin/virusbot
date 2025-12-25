@@ -41,10 +41,16 @@ virusbot/
 5. **Neutral Placement**: Strategic blocking of opponent paths
 6. **Configuration**: All settings via environment variables
 7. **Unit Tests**: Board and rules tests
+8. **Auto-Accept Challenges**: Bot automatically accepts incoming challenges (enabled by default)
 
 ### Strategy Options
 - **heuristic (default)**: Fast, deterministic multi-factor scoring
 - **mcts**: Monte Carlo Tree Search for probabilistic play
+
+### Challenge Auto-Accept
+The bot will automatically accept incoming challenges. This can be controlled via:
+- `VIRUSBOT_AUTO_ACCEPT_CHALLENGE=true` (default: enabled)
+- `VIRUSBOT_AUTO_ACCEPT_CHALLENGE=false` to disable
 
 ### Usage
 ```bash
@@ -56,10 +62,13 @@ go build -o virusbot cmd/bot/main.go
 
 # Use MCTS strategy
 VIRUSBOT_STRATEGY=mcts ./virusbot
+
+# Disable auto-accept challenges
+VIRUSBOT_AUTO_ACCEPT_CHALLENGE=false ./virusbot
 ```
 
 ## State
-Project implementation complete and ready for testing against the backend server.
+Project implementation complete with automatic challenge acceptance.
 
 ## Working set
 - All source files in /Users/iv/Projects/virusbot/

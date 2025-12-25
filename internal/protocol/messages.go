@@ -176,6 +176,28 @@ func ParseGameEnd(data []byte) (*GameEndMessage, error) {
 	return &msg, nil
 }
 
+// ChallengeMessage contains challenge information
+type ChallengeMessage struct {
+	ChallengeID string `json:"challengeId"`
+	FromUser    string `json:"fromUser"`
+	FromUserID  string `json:"fromUserId"`
+	BoardSize   int    `json:"boardSize"`
+}
+
+// ParseChallenge parses a challenge message
+func ParseChallenge(data []byte) (*ChallengeMessage, error) {
+	var msg ChallengeMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// NewAcceptChallengeMessage creates an accept challenge message
+func NewAcceptChallengeMessage(challengeID string) *Message {
+	return NewMessage(MsgAcceptChallenge, map[string]string{"challengeId": challengeID})
+}
+
 // NewMessage creates a new message with the given type and data
 func NewMessage(msgType MessageType, data interface{}) *Message {
 	return &Message{

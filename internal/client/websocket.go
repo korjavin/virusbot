@@ -27,19 +27,20 @@ type Callback func(event string, data interface{})
 
 // Client represents a WebSocket client for the game
 type Client struct {
-	conn      *websocket.Conn
-	config    *config.Config
-	userID    string
-	userName  string
-	gameState *GameState
-	callback  Callback
-	incoming  chan []byte
-	mu        sync.RWMutex
-	connected bool
-	ctx       context.Context
-	cancel    context.CancelFunc
-	moveDelay time.Duration
-	debug     bool
+	conn             *websocket.Conn
+	config           *config.Config
+	userID           string
+	userName         string
+	gameState        *GameState
+	callback         Callback
+	incoming         chan []byte
+	mu               sync.RWMutex
+	connected        bool
+	ctx              context.Context
+	cancel           context.CancelFunc
+	moveDelay        time.Duration
+	debug            bool
+	currentChallenge string
 }
 
 // NewClient creates a new WebSocket client
@@ -125,6 +126,9 @@ func (c *Client) handleMessage(data []byte) error {
 	switch msg.Type {
 	case protocol.MsgWelcome:
 		return c.handleWelcome(msg.Data)
+
+	case protocol.MsgChallenge:
+		return c.handleChallenge(msg.Data)
 
 	case protocol.MsgGameStart:
 		return c.handleGameStart(msg.Data)
@@ -277,6 +281,47 @@ func (c *Client) handleUsersUpdate(data interface{}) {
 	if c.callback != nil {
 		c.callback("users_update", data)
 	}
+}
+
+// handleChallenge handles incoming challenge messages
+func (c *Client) handleChallenge(data interface{}) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	challenge, err := protocol.ParseChallenge(jsonData)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	c.currentChallenge = challenge.ChallengeID
+	c.mu.Unlock()
+
+	if c.debug {
+		log.Printf("Challenge received from %s (ID: %s)", challenge.FromUser, challenge.ChallengeID)
+	}
+
+	if c.callback != nil {
+		c.callback("challenge", challenge)
+	}
+
+	// Auto-accept challenge if configured
+	if c.config.AutoAcceptChallenge {
+		return c.AcceptChallenge(challenge.ChallengeID)
+	}
+
+	return nil
+}
+
+// AcceptChallenge accepts a challenge by ID
+func (c *Client) AcceptChallenge(challengeID string) error {
+	msg := protocol.NewAcceptChallengeMessage(challengeID)
+	if c.debug {
+		log.Printf("Accepting challenge: %s", challengeID)
+	}
+	return c.SendMessage(msg)
 }
 
 // handleDisconnect handles connection loss
