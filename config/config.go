@@ -65,7 +65,7 @@ func Load() (*Config, error) {
 		MoveDelay:           getEnvDuration("VIRUSBOT_MOVE_DELAY", 500*time.Millisecond),
 		Debug:               getEnvBool("VIRUSBOT_DEBUG"),
 		AutoAcceptChallenge: getEnvBool("VIRUSBOT_AUTO_ACCEPT_CHALLENGE"),
-		Strategy:           getEnv("VIRUSBOT_STRATEGY", "heuristic"),
+		Strategy:           getEnv("VIRUSBOT_STRATEGY", "mcts"),
 		MCTSIterations:     getEnvInt("VIRUSBOT_MCTS_ITERATIONS", 1000),
 		MCTSTimeLimit:      getEnvDuration("VIRUSBOT_MCTS_TIME_LIMIT", 1*time.Second),
 		MCTSUCTConst:       getEnvFloat("VIRUSBOT_MCTS_UCT_CONST", 1.41),

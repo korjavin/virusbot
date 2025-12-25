@@ -41,6 +41,7 @@ type Client struct {
 	moveDelay        time.Duration
 	debug            bool
 	currentChallenge string
+	gameID           string
 }
 
 // NewClient creates a new WebSocket client
@@ -123,24 +124,31 @@ func (c *Client) handleMessage(data []byte) error {
 		return fmt.Errorf("failed to parse message: %w", err)
 	}
 
+	if c.debug {
+		log.Printf("Raw message: %s", string(data))
+	}
+
 	switch msg.Type {
 	case protocol.MsgWelcome:
-		return c.handleWelcome(msg.Data)
+		return c.handleWelcome(data)
 
 	case protocol.MsgChallenge:
-		return c.handleChallenge(msg.Data)
+		return c.handleChallenge(data)
 
 	case protocol.MsgGameStart:
-		return c.handleGameStart(msg.Data)
+		return c.handleGameStart(data)
 
 	case protocol.MsgMoveMade:
-		return c.handleMoveMade(msg.Data)
+		return c.handleMoveMade(data)
+
+	case protocol.MsgTurnChange:
+		return c.handleTurnChange(data)
 
 	case protocol.MsgGameEnd:
-		return c.handleGameEnd(msg.Data)
+		return c.handleGameEnd(data)
 
 	case protocol.MsgUsersUpdate:
-		c.handleUsersUpdate(msg.Data)
+		c.handleUsersUpdate(data)
 
 	default:
 		if c.debug {
@@ -152,19 +160,18 @@ func (c *Client) handleMessage(data []byte) error {
 }
 
 // handleWelcome handles the welcome message after connection
-func (c *Client) handleWelcome(data interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
+func (c *Client) handleWelcome(data []byte) error {
+	if c.debug {
+		log.Printf("Welcome data: %s", string(data))
 	}
 
-	welcome, err := protocol.ParseWelcome(jsonData)
+	welcome, err := protocol.ParseWelcome(data)
 	if err != nil {
 		return err
 	}
 
 	c.userID = welcome.UserID
-	c.userName = welcome.Name
+	c.userName = welcome.UserName
 
 	if c.debug {
 		log.Printf("Connected as %s (ID: %s)", c.userName, c.userID)
@@ -192,28 +199,56 @@ func (c *Client) handleWelcome(data interface{}) error {
 }
 
 // handleGameStart handles the start of a game
-func (c *Client) handleGameStart(data interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
+func (c *Client) handleGameStart(data []byte) error {
+	// Try to parse as new format first (without board data)
+	gameStartV2, err := protocol.ParseGameStartV2(data)
+	if err == nil && gameStartV2.Rows > 0 {
+		// New format: initialize empty board
+		board := make([][]protocol.CellType, gameStartV2.Rows)
+		for i := range board {
+			board[i] = make([]protocol.CellType, gameStartV2.Cols)
+		}
 
-	gameStart, err := protocol.ParseGameStart(jsonData)
-	if err != nil {
-		return err
-	}
+		// Create players - we need base positions for valid moves
+		// In the new protocol, base positions come from initial board state
+		// For now, create placeholder players
+		players := []protocol.PlayerInfo{
+			{ID: 1, Name: "Player 1", Symbol: protocol.CellPlayer1, Position: protocol.Position{Row: 0, Col: 0}, IsAI: true},
+			{ID: 2, Name: "Player 2", Symbol: protocol.CellPlayer2, Position: protocol.Position{Row: gameStartV2.Rows - 1, Col: gameStartV2.Cols - 1}, IsAI: true},
+		}
 
-	c.mu.Lock()
-	c.gameState = &GameState{
-		Board:         gameStart.Board,
-		Players:       gameStart.Players,
-		CurrentPlayer: gameStart.CurrentPlayer,
-		YourPlayerID:  gameStart.YourPlayerID,
-	}
-	c.mu.Unlock()
+		c.mu.Lock()
+		c.gameState = &GameState{
+			Board:         board,
+			Players:       players,
+			CurrentPlayer: gameStartV2.YourPlayer,
+			YourPlayerID:  gameStartV2.YourPlayer,
+		}
+		c.gameID = gameStartV2.GameID
+		c.mu.Unlock()
 
-	if c.debug {
-		log.Printf("Game started! You are player %d", gameStart.YourPlayerID)
+		if c.debug {
+			log.Printf("Game started: you are player %d (gameId: %s)", gameStartV2.YourPlayer, gameStartV2.GameID)
+		}
+	} else {
+		// Old format with board data
+		gameStart, err := protocol.ParseGameStart(data)
+		if err != nil {
+			return err
+		}
+
+		c.mu.Lock()
+		c.gameState = &GameState{
+			Board:         gameStart.Board,
+			Players:       gameStart.Players,
+			CurrentPlayer: gameStart.CurrentPlayer,
+			YourPlayerID:  gameStart.YourPlayerID,
+		}
+		c.mu.Unlock()
+
+		if c.debug {
+			log.Printf("Game started: you are player %d", gameStart.YourPlayerID)
+		}
 	}
 
 	if c.callback != nil {
@@ -224,26 +259,28 @@ func (c *Client) handleGameStart(data interface{}) error {
 }
 
 // handleMoveMade handles a move being made
-func (c *Client) handleMoveMade(data interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
-	moveMade, err := protocol.ParseMoveMade(jsonData)
+func (c *Client) handleMoveMade(data []byte) error {
+	moveMade, err := protocol.ParseMoveMade(data)
 	if err != nil {
 		return err
 	}
 
 	c.mu.Lock()
-	if c.gameState != nil {
-		c.gameState.Board[moveMade.Row][moveMade.Col] = moveMade.CellType
-		c.gameState.CurrentPlayer = (c.gameState.CurrentPlayer + 1) % len(c.gameState.Players)
+	if c.gameState != nil && c.gameState.Board != nil && len(c.gameState.Board) > moveMade.Row {
+		if len(c.gameState.Board[moveMade.Row]) > moveMade.Col {
+			// Mark the cell with the player's cell type
+			cellType := protocol.CellType(moveMade.Player)
+			c.gameState.Board[moveMade.Row][moveMade.Col] = cellType
+		}
+		// Only change turn when movesLeft reaches 0
+		if moveMade.MovesLeft == 0 {
+			c.gameState.CurrentPlayer = (c.gameState.CurrentPlayer + 1) % 2
+		}
 	}
 	c.mu.Unlock()
 
 	if c.debug {
-		log.Printf("Player %d moved to (%d, %d)", moveMade.PlayerID, moveMade.Row, moveMade.Col)
+		log.Printf("Player %d moved to (%d, %d), movesLeft=%d", moveMade.Player, moveMade.Row, moveMade.Col, moveMade.MovesLeft)
 	}
 
 	if c.callback != nil {
@@ -254,13 +291,8 @@ func (c *Client) handleMoveMade(data interface{}) error {
 }
 
 // handleGameEnd handles the end of a game
-func (c *Client) handleGameEnd(data interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
-	gameEnd, err := protocol.ParseGameEnd(jsonData)
+func (c *Client) handleGameEnd(data []byte) error {
+	gameEnd, err := protocol.ParseGameEnd(data)
 	if err != nil {
 		return err
 	}
@@ -276,6 +308,25 @@ func (c *Client) handleGameEnd(data interface{}) error {
 	return nil
 }
 
+// handleTurnChange handles turn change notifications
+func (c *Client) handleTurnChange(data []byte) error {
+	turnChange, err := protocol.ParseTurnChange(data)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	if c.gameState != nil {
+		c.gameState.CurrentPlayer = turnChange.Player
+		log.Printf("Turn changed to player %d", turnChange.Player)
+	} else {
+		log.Printf("Turn change ignored: no game state")
+	}
+	c.mu.Unlock()
+
+	return nil
+}
+
 // handleUsersUpdate handles the list of online users
 func (c *Client) handleUsersUpdate(data interface{}) {
 	if c.callback != nil {
@@ -284,13 +335,12 @@ func (c *Client) handleUsersUpdate(data interface{}) {
 }
 
 // handleChallenge handles incoming challenge messages
-func (c *Client) handleChallenge(data interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
+func (c *Client) handleChallenge(data []byte) error {
+	if c.debug {
+		log.Printf("Challenge data: %s", string(data))
 	}
 
-	challenge, err := protocol.ParseChallenge(jsonData)
+	challenge, err := protocol.ParseChallenge(data)
 	if err != nil {
 		return err
 	}
@@ -300,14 +350,23 @@ func (c *Client) handleChallenge(data interface{}) error {
 	c.mu.Unlock()
 
 	if c.debug {
-		log.Printf("Challenge received from %s (ID: %s)", challenge.FromUser, challenge.ChallengeID)
+		log.Printf("Challenge received from %s (ID: %s)", challenge.FromUserName, challenge.ChallengeID)
 	}
 
 	if c.callback != nil {
+		if c.debug {
+			log.Printf("Calling challenge callback...")
+		}
 		c.callback("challenge", challenge)
+		if c.debug {
+			log.Printf("Challenge callback returned")
+		}
 	}
 
 	// Auto-accept challenge if configured
+	if c.debug {
+		log.Printf("AutoAcceptChallenge: %v", c.config.AutoAcceptChallenge)
+	}
 	if c.config.AutoAcceptChallenge {
 		return c.AcceptChallenge(challenge.ChallengeID)
 	}
@@ -317,11 +376,38 @@ func (c *Client) handleChallenge(data interface{}) error {
 
 // AcceptChallenge accepts a challenge by ID
 func (c *Client) AcceptChallenge(challengeID string) error {
-	msg := protocol.NewAcceptChallengeMessage(challengeID)
 	if c.debug {
 		log.Printf("Accepting challenge: %s", challengeID)
 	}
-	return c.SendMessage(msg)
+
+	// Send the correct format without nested "data" field
+	msg := map[string]interface{}{
+		"type":        protocol.MsgAcceptChallenge,
+		"challengeId": challengeID,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal accept challenge: %w", err)
+	}
+
+	if c.debug {
+		log.Printf("Sending message: %s", string(data))
+	}
+
+	c.mu.RLock()
+	connected := c.connected
+	c.mu.RUnlock()
+
+	if !connected {
+		return fmt.Errorf("not connected")
+	}
+
+	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+
+	return nil
 }
 
 // handleDisconnect handles connection loss
@@ -350,6 +436,10 @@ func (c *Client) SendMessage(msg *protocol.Message) error {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
+	if c.debug {
+		log.Printf("Sending message: %s", string(data))
+	}
+
 	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
@@ -364,8 +454,40 @@ func (c *Client) MakeMove(row, col int) error {
 		time.Sleep(c.moveDelay)
 	}
 
-	msg := protocol.NewMoveMessage(row, col)
-	return c.SendMessage(msg)
+	c.mu.RLock()
+	gameID := c.gameID
+	c.mu.RUnlock()
+
+	// Send with correct format (no nested data field)
+	msg := map[string]interface{}{
+		"type":  protocol.MsgMove,
+		"row":   row,
+		"col":   col,
+		"gameId": gameID,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal move: %w", err)
+	}
+
+	if c.debug {
+		log.Printf("Sending move: %s", string(data))
+	}
+
+	c.mu.RLock()
+	connected := c.connected
+	c.mu.RUnlock()
+
+	if !connected {
+		return fmt.Errorf("not connected")
+	}
+
+	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return fmt.Errorf("failed to send move: %w", err)
+	}
+
+	return nil
 }
 
 // CreateLobby creates a new game lobby
@@ -391,7 +513,10 @@ func (c *Client) GetGameState() *GameState {
 func (c *Client) IsMyTurn() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.gameState != nil && c.gameState.CurrentPlayer == c.gameState.YourPlayerID
+	if c.gameState == nil {
+		return false
+	}
+	return c.gameState.CurrentPlayer == c.gameState.YourPlayerID
 }
 
 // GetUserID returns the user's ID

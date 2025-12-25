@@ -21,13 +21,14 @@ const (
 	MsgStartMultiplayer MessageType = "start_multiplayer_game"
 
 	// Game messages
-	MsgGameStart MessageType = "game_start"
-	MsgMove      MessageType = "move"
-	MsgMoveMade  MessageType = "move_made"
-	MsgGameEnd   MessageType = "game_end"
+	MsgGameStart  MessageType = "game_start"
+	MsgMove       MessageType = "move"
+	MsgMoveMade   MessageType = "move_made"
+	MsgTurnChange MessageType = "turn_change"
+	MsgGameEnd    MessageType = "game_end"
 
-	// Challenge messages (legacy)
-	MsgChallenge        MessageType = "challenge"
+	// Challenge messages
+	MsgChallenge        MessageType = "challenge_received"
 	MsgAcceptChallenge  MessageType = "accept_challenge"
 	MsgDeclineChallenge MessageType = "decline_challenge"
 )
@@ -67,8 +68,8 @@ type Message struct {
 
 // WelcomeMessage is sent when a client connects
 type WelcomeMessage struct {
-	UserID string `json:"userId"`
-	Name   string `json:"name"`
+	UserID   string `json:"userId"`
+	UserName string `json:"username"`
 }
 
 // UsersUpdateMessage contains the list of online users
@@ -110,6 +111,16 @@ type GameStartMessage struct {
 	YourPlayerID  int          `json:"yourPlayerId"`
 }
 
+// GameStartV2Message is sent when a game begins (new format without board data)
+type GameStartV2Message struct {
+	GameID           string `json:"gameId"`
+	OpponentID       string `json:"opponentId"`
+	OpponentUsername string `json:"opponentUsername"`
+	YourPlayer       int    `json:"yourPlayer"`
+	Rows             int    `json:"rows"`
+	Cols             int    `json:"cols"`
+}
+
 // MoveMessage is sent to make a move
 type MoveMessage struct {
 	Row int `json:"row"`
@@ -118,10 +129,11 @@ type MoveMessage struct {
 
 // MoveMadeMessage is broadcast when a move is made
 type MoveMadeMessage struct {
-	Row      int      `json:"row"`
-	Col      int      `json:"col"`
-	PlayerID int      `json:"playerId"`
-	CellType CellType `json:"cellType"`
+	GameID    string `json:"gameId"`
+	Row       int    `json:"row"`
+	Col       int    `json:"col"`
+	Player    int    `json:"player"`
+	MovesLeft int    `json:"movesLeft"`
 }
 
 // GameEndMessage is sent when the game ends
@@ -129,6 +141,22 @@ type GameEndMessage struct {
 	Winner     int    `json:"winner"`
 	Eliminated []int  `json:"eliminated,omitempty"`
 	Message    string `json:"message,omitempty"`
+}
+
+// TurnChangeMessage is sent when the turn changes
+type TurnChangeMessage struct {
+	GameID    string `json:"gameId"`
+	Player    int    `json:"player"`
+	MovesLeft int    `json:"movesLeft"`
+}
+
+// ParseTurnChange parses a turn change message
+func ParseTurnChange(data []byte) (*TurnChangeMessage, error) {
+	var msg TurnChangeMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
 }
 
 // ParseMessage parses a raw JSON message into a structured message
@@ -158,6 +186,15 @@ func ParseGameStart(data []byte) (*GameStartMessage, error) {
 	return &msg, nil
 }
 
+// ParseGameStartV2 parses a game start message (new format)
+func ParseGameStartV2(data []byte) (*GameStartV2Message, error) {
+	var msg GameStartV2Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
 // ParseMoveMade parses a move made message
 func ParseMoveMade(data []byte) (*MoveMadeMessage, error) {
 	var msg MoveMadeMessage
@@ -178,10 +215,9 @@ func ParseGameEnd(data []byte) (*GameEndMessage, error) {
 
 // ChallengeMessage contains challenge information
 type ChallengeMessage struct {
-	ChallengeID string `json:"challengeId"`
-	FromUser    string `json:"fromUser"`
-	FromUserID  string `json:"fromUserId"`
-	BoardSize   int    `json:"boardSize"`
+	ChallengeID  string `json:"challengeId"`
+	FromUserID   string `json:"fromUserId"`
+	FromUserName string `json:"fromUsername"`
 }
 
 // ParseChallenge parses a challenge message
@@ -195,7 +231,10 @@ func ParseChallenge(data []byte) (*ChallengeMessage, error) {
 
 // NewAcceptChallengeMessage creates an accept challenge message
 func NewAcceptChallengeMessage(challengeID string) *Message {
-	return NewMessage(MsgAcceptChallenge, map[string]string{"challengeId": challengeID})
+	return &Message{
+		Type: MsgAcceptChallenge,
+		Data: map[string]interface{}{"challengeId": challengeID},
+	}
 }
 
 // NewMessage creates a new message with the given type and data
