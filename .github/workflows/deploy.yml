@@ -63,6 +63,6 @@ jobs:
           git push origin deploy --force
 
       - name: Trigger Portainer webhook
-        if: ${{ secrets.PORTAINER_REDEPLOY_HOOK != '' }}
+        if: secrets.PORTAINER_REDEPLOY_HOOK != ''
         run: |
           curl -X POST "${{ secrets.PORTAINER_REDEPLOY_HOOK }}"
