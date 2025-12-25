@@ -16,18 +16,18 @@ import (
 	"virusbot/internal/strategy"
 )
 
-// isValidMove checks if a move is valid (target is empty or opponent's cell)
+// isValidMove checks if a move is valid (target is empty or attackable opponent's cell)
 func isValidMove(board [][]protocol.CellType, playerID int, row, col int) bool {
 	if row < 0 || row >= len(board) || col < 0 || col >= len(board[row]) {
 		return false
 	}
 	cell := board[row][col]
-	// Valid if empty or opponent's cell
+	// Valid if empty
 	if cell == protocol.CellEmpty {
 		return true
 	}
-	// Check if it's opponent's cell (player IDs are 1-4, cell types are 1-4)
-	if cell != protocol.CellNeutral && int(cell) != playerID+1 {
+	// Valid if opponent's cell AND can be attacked (not base/fortified/killed)
+	if cell != protocol.CellNeutral && cell.Player() != playerID && cell.CanBeAttacked() {
 		return true
 	}
 	return false
@@ -181,6 +181,20 @@ func main() {
 					break
 				}
 
+				// Debug: log player positions and board state
+				if cfg.Debug {
+					log.Printf("Client state - Players: %v", state.Players)
+					if gs.Board != nil {
+						log.Printf("Game state - Base positions: %v", gs.Board.BasePos)
+						// Log our cells
+						myCells := gs.Board.GetPlayerCells(state.YourPlayerID)
+						log.Printf("Our cells (player %d): %v", state.YourPlayerID, myCells)
+						// Log reachable cells
+						reachable := gs.Board.GetReachableCells(state.YourPlayerID)
+						log.Printf("Reachable cells: %v", reachable)
+					}
+				}
+
 				// Get fresh strategy moves (1 at a time)
 				moves := strategy.DecideMoves(gs, 1)
 				if len(moves) == 0 {
@@ -229,28 +243,56 @@ func convertToGameState(cs *client.GameState) *game.GameState {
 		return nil
 	}
 
+	// Build base positions from players if available, or discover from board
+	basePos := make(map[int]game.Position)
+
+	// First try to get base positions from player info
+	if cs.Players != nil {
+		for _, p := range cs.Players {
+			// Check if position is valid (not the placeholder -1, -1)
+			if p.Position.Row >= 0 && p.Position.Col >= 0 {
+				basePos[p.ID] = game.Position{
+					Row: p.Position.Row,
+					Col: p.Position.Col,
+				}
+			}
+		}
+	}
+
+	// If base positions are not available from player info, discover from board
+	// by finding the first cell owned by each player
+	if cs.Board != nil && len(basePos) == 0 {
+		for row := 0; row < len(cs.Board); row++ {
+			for col := 0; col < len(cs.Board[row]); col++ {
+				cellType := cs.Board[row][col]
+				// Extract player ID using Player() method (handles flag bits)
+				playerID := cellType.Player()
+				if playerID >= 1 && playerID <= 4 {
+					// Only set if not already found
+					if _, exists := basePos[playerID]; !exists {
+						basePos[playerID] = game.Position{Row: row, Col: col}
+					}
+				}
+			}
+		}
+	}
+
 	// Handle nil Players (new protocol format)
 	var players []*game.Player
 	if cs.Players != nil {
 		players = make([]*game.Player, len(cs.Players))
 		for i, p := range cs.Players {
+			// Use discovered base position if available
+			basePosition := game.Position{Row: p.Position.Row, Col: p.Position.Col}
+			if pos, exists := basePos[p.ID]; exists {
+				basePosition = pos
+			}
 			players[i] = &game.Player{
 				ID:      p.ID,
 				Name:    p.Name,
 				Symbol:  p.Symbol,
-				BasePos: game.Position{Row: p.Position.Row, Col: p.Position.Col},
+				BasePos: basePosition,
 				IsAlive: true,
-			}
-		}
-	}
-
-	// Build base positions from players if available
-	basePos := make(map[int]game.Position)
-	if cs.Players != nil {
-		for _, p := range cs.Players {
-			basePos[p.ID] = game.Position{
-				Row: p.Position.Row,
-				Col: p.Position.Col,
 			}
 		}
 	}

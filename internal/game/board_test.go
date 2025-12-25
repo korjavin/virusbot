@@ -46,12 +46,12 @@ func TestBoardCellOperations(t *testing.T) {
 	}
 
 	// Test IsOwnedBy
-	if !board.IsOwnedBy(pos, 0) { // Player1 has ID 0
-		t.Error("Expected cell to be owned by player 0")
+	if !board.IsOwnedBy(pos, 1) { // Player1 has ID 1 (matches CellPlayer1 = 1)
+		t.Error("Expected cell to be owned by player 1")
 	}
 
-	if board.IsOwnedBy(pos, 1) {
-		t.Error("Expected cell to not be owned by player 1")
+	if board.IsOwnedBy(pos, 2) {
+		t.Error("Expected cell to not be owned by player 2")
 	}
 }
 

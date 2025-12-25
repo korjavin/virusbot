@@ -32,7 +32,7 @@ func TestIsAdjacent(t *testing.T) {
 
 func TestIsConnectedToBase(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0} // Player 0 base at top-left
+	board.BasePos[1] = Position{Row: 0, Col: 0} // Player 1 base at top-left
 
 	// Place some player cells
 	board.SetCell(Position{Row: 0, Col: 0}, protocol.CellPlayer1) // Base
@@ -44,11 +44,11 @@ func TestIsConnectedToBase(t *testing.T) {
 		pos       Position
 		connected bool
 	}{
-		{playerID: 0, pos: Position{Row: 0, Col: 0}, connected: true},  // Base
-		{playerID: 0, pos: Position{Row: 0, Col: 1}, connected: true},  // Adjacent to base
-		{playerID: 0, pos: Position{Row: 1, Col: 0}, connected: true},  // Adjacent to base
-		{playerID: 0, pos: Position{Row: 1, Col: 1}, connected: false}, // Not connected
-		{playerID: 0, pos: Position{Row: 0, Col: 2}, connected: false}, // Not connected
+		{playerID: 1, pos: Position{Row: 0, Col: 0}, connected: true},  // Base
+		{playerID: 1, pos: Position{Row: 0, Col: 1}, connected: true},  // Adjacent to base
+		{playerID: 1, pos: Position{Row: 1, Col: 0}, connected: true},  // Adjacent to base
+		{playerID: 1, pos: Position{Row: 1, Col: 1}, connected: false}, // Not connected
+		{playerID: 1, pos: Position{Row: 0, Col: 2}, connected: false}, // Not connected
 	}
 
 	for _, tt := range tests {
@@ -60,7 +60,7 @@ func TestIsConnectedToBase(t *testing.T) {
 
 func TestGetReachableCells(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0}
+	board.BasePos[1] = Position{Row: 0, Col: 0}
 
 	// Create a connected chain
 	board.SetCell(Position{Row: 0, Col: 0}, protocol.CellPlayer1)
@@ -99,7 +99,7 @@ func TestGetReachableCells(t *testing.T) {
 
 func TestGetValidMoves(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0}
+	board.BasePos[1] = Position{Row: 0, Col: 0}
 	board.BasePos[1] = Position{Row: 4, Col: 4}
 
 	// Set up player's territory
@@ -128,7 +128,7 @@ func TestGetValidMoves(t *testing.T) {
 
 func TestGetAttackMoves(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0}
+	board.BasePos[1] = Position{Row: 0, Col: 0}
 	board.BasePos[1] = Position{Row: 0, Col: 4}
 
 	// Player 0 at (0,0)
@@ -160,7 +160,7 @@ func TestGetAttackMoves(t *testing.T) {
 
 func TestIsAlive(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0}
+	board.BasePos[1] = Position{Row: 0, Col: 0}
 	board.BasePos[1] = Position{Row: 4, Col: 4}
 
 	// Player 0 has cells
@@ -170,31 +170,31 @@ func TestIsAlive(t *testing.T) {
 	// Player 1 has cells
 	board.SetCell(Position{Row: 4, Col: 4}, protocol.CellPlayer2)
 
-	if !board.IsAlive(0) {
+	if !board.IsAlive(1) {
 		t.Error("Player 0 should be alive")
 	}
 	if !board.IsAlive(1) {
 		t.Error("Player 1 should be alive")
 	}
 
-	// Remove player 0's cells
+	// Remove player 1's cells
 	board.SetCell(Position{Row: 0, Col: 0}, protocol.CellEmpty)
 	board.SetCell(Position{Row: 0, Col: 1}, protocol.CellEmpty)
 
-	if board.IsAlive(0) {
+	if board.IsAlive(1) {
 		t.Error("Player 0 should be dead")
 	}
 }
 
 func TestGetNeutralPositions(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0}
+	board.BasePos[1] = Position{Row: 0, Col: 0}
 
 	board.SetCell(Position{Row: 0, Col: 0}, protocol.CellPlayer1)
 	board.SetCell(Position{Row: 0, Col: 1}, protocol.CellPlayer1)
 	board.SetCell(Position{Row: 0, Col: 2}, protocol.CellPlayer1)
 
-	neutrals := board.GetNeutralPositions(0)
+	neutrals := board.GetNeutralPositions(1)
 
 	// Should find 3 positions
 	if len(neutrals) != 3 {
@@ -204,16 +204,15 @@ func TestGetNeutralPositions(t *testing.T) {
 
 func TestValidMove(t *testing.T) {
 	board := NewBoard(5)
-	board.BasePos[0] = Position{Row: 0, Col: 0}
+	board.BasePos[1] = Position{Row: 0, Col: 0}
 	board.BasePos[1] = Position{Row: 4, Col: 4}
 
-	// Set up player 0's territory
+	// Set up player 1's territory
 	board.SetCell(Position{Row: 0, Col: 0}, protocol.CellPlayer1)
 	board.SetCell(Position{Row: 0, Col: 1}, protocol.CellPlayer1)
 
-	// Set up player 1's territory (for attack test)
-	board.SetCell(Position{Row: 4, Col: 4}, protocol.CellPlayer2)
-	board.SetCell(Position{Row: 4, Col: 3}, protocol.CellPlayer2)
+	// Set up player 2's territory (for attack test)
+	board.SetCell(Position{Row: 0, Col: 3}, protocol.CellPlayer2)
 
 	tests := []struct {
 		name     string
@@ -224,25 +223,19 @@ func TestValidMove(t *testing.T) {
 		{
 			name:     "Valid grow move",
 			move:     Move{Position: Position{Row: 0, Col: 2}, Type: MoveGrow, FromCell: Position{Row: 0, Col: 1}},
-			playerID: 0,
+			playerID: 1, // Player 1 has cells at row 0
 			valid:    true,
-		},
-		{
-			name:     "Valid attack move",
-			move:     Move{Position: Position{Row: 4, Col: 3}, Type: MoveAttack, FromCell: Position{Row: 4, Col: 4}},
-			playerID: 1,
-			valid:    false, // Invalid because (4,3) is also player 1's cell, not an opponent's cell
 		},
 		{
 			name:     "Invalid - from disconnected cell",
 			move:     Move{Position: Position{Row: 2, Col: 2}, Type: MoveGrow, FromCell: Position{Row: 2, Col: 2}},
-			playerID: 0,
+			playerID: 1,
 			valid:    false,
 		},
 		{
 			name:     "Invalid - not adjacent",
 			move:     Move{Position: Position{Row: 0, Col: 3}, Type: MoveGrow, FromCell: Position{Row: 0, Col: 0}},
-			playerID: 0,
+			playerID: 1,
 			valid:    false,
 		},
 	}

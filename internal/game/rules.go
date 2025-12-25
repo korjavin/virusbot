@@ -44,11 +44,12 @@ func ValidMove(board *Board, playerID int, move Move) bool {
 	return false
 }
 
-// IsAdjacent checks if two positions are adjacent
+// IsAdjacent checks if two positions are adjacent (8-directional: includes diagonals)
 func (b *Board) IsAdjacent(pos1, pos2 Position) bool {
 	dr := abs(pos1.Row - pos2.Row)
 	dc := abs(pos1.Col - pos2.Col)
-	return (dr == 1 && dc == 0) || (dr == 0 && dc == 1)
+	// Adjacent if distance is at most 1 in both directions (allows diagonals)
+	return dr <= 1 && dc <= 1 && (dr != 0 || dc != 0)
 }
 
 // IsConnectedToBase checks if a cell is connected to the player's base
@@ -95,6 +96,17 @@ func (b *Board) GetReachableCells(playerID int) []Position {
 		return nil
 	}
 
+	// Check if base is still owned by player (could have been captured)
+	if !b.IsOwnedBy(basePos, playerID) {
+		// Base was captured - find any remaining cells owned by this player
+		// and use the first one as a new starting point for BFS
+		playerCells := b.GetPlayerCells(playerID)
+		if len(playerCells) == 0 {
+			return nil // Player has no cells left
+		}
+		basePos = playerCells[0] // Use first remaining cell as new "base"
+	}
+
 	reachable := make([]Position, 0)
 	visited := make(map[Position]bool)
 	queue := []Position{basePos}
@@ -126,6 +138,24 @@ func (b *Board) GetValidMoves(playerID int) []Move {
 
 	// Get all cells connected to base
 	reachableCells := b.GetReachableCells(playerID)
+
+	// Special case: if player has no cells yet (first move), they can place anywhere
+	if len(reachableCells) == 0 {
+		// First move: can place on any empty cell
+		for row := 0; row < b.Size; row++ {
+			for col := 0; col < b.Size; col++ {
+				pos := Position{Row: row, Col: col}
+				if b.IsEmpty(pos) {
+					moves = append(moves, Move{
+						Position: pos,
+						Type:     MoveGrow,
+						FromCell: pos, // First move, no "from" cell
+					})
+				}
+			}
+		}
+		return moves
+	}
 
 	for _, fromCell := range reachableCells {
 		// Check all neighbors for potential moves

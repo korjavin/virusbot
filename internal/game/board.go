@@ -72,8 +72,8 @@ func (b *Board) IsEmpty(pos Position) bool {
 // IsOwnedBy checks if a cell is owned by a specific player
 func (b *Board) IsOwnedBy(pos Position, playerID int) bool {
 	cell := b.GetCell(pos)
-	// Player IDs are 1-4, cell types are 1-4 (Player1-Player4)
-	return int(cell) == playerID+1 && cell != protocol.CellNeutral
+	// Extract player ID from cell value (handles flag bits)
+	return cell.Player() == playerID && cell != protocol.CellEmpty && cell != protocol.CellNeutral
 }
 
 // IsNeutral checks if a cell is neutral
@@ -81,21 +81,30 @@ func (b *Board) IsNeutral(pos Position) bool {
 	return b.GetCell(pos) == protocol.CellNeutral
 }
 
-// IsOpponent checks if a cell is owned by an opponent
+// IsOpponent checks if a cell is owned by an opponent AND can be attacked
 func (b *Board) IsOpponent(pos Position, playerID int) bool {
 	cell := b.GetCell(pos)
 	if cell == protocol.CellEmpty || cell == protocol.CellNeutral {
 		return false
 	}
-	// Player IDs are 1-4, cell types are 1-4
-	return int(cell) != playerID+1
+	// Extract player ID from cell value (handles flag bits)
+	// Only return true if it's an opponent's cell AND it can be attacked (not base/fortified/killed)
+	return cell.Player() != playerID && cell.CanBeAttacked()
 }
 
-// GetNeighbors returns all adjacent positions (up, down, left, right)
+// GetNeighbors returns all adjacent positions (8-directional: orthogonal + diagonal)
 func (b *Board) GetNeighbors(pos Position) []Position {
-	neighbors := make([]Position, 0, 4)
+	neighbors := make([]Position, 0, 8)
+	// 8 directions: up, down, left, right, and 4 diagonals
 	directions := []struct{ dr, dc int }{
-		{-1, 0}, {1, 0}, {0, -1}, {0, 1},
+		{-1, 0},  // up
+		{1, 0},   // down
+		{0, -1},  // left
+		{0, 1},   // right
+		{-1, -1}, // up-left
+		{-1, 1},  // up-right
+		{1, -1},  // down-left
+		{1, 1},   // down-right
 	}
 
 	for _, d := range directions {
@@ -160,7 +169,7 @@ func (b *Board) Clone() *Board {
 // ApplyMove applies a move to the board and returns a new board
 func (b *Board) ApplyMove(pos Position, playerID int, isAttack bool) *Board {
 	newBoard := b.Clone()
-	cellType := protocol.CellType(playerID + 1)
+	cellType := protocol.CellType(playerID) // Player 1 → CellPlayer1 (1), Player 2 → CellPlayer2 (2)
 	newBoard.SetCell(pos, cellType)
 	return newBoard
 }
@@ -168,10 +177,10 @@ func (b *Board) ApplyMove(pos Position, playerID int, isAttack bool) *Board {
 // CountCells counts the number of cells owned by a player
 func (b *Board) CountCells(playerID int) int {
 	count := 0
-	cellType := protocol.CellType(playerID + 1)
 	for row := 0; row < b.Size; row++ {
 		for col := 0; col < b.Size; col++ {
-			if b.Cells[row][col] == cellType {
+			// Use Player() method to extract player ID from cell value
+			if b.Cells[row][col].Player() == playerID {
 				count++
 			}
 		}
@@ -181,11 +190,11 @@ func (b *Board) CountCells(playerID int) int {
 
 // GetPlayerCells returns all positions owned by a player
 func (b *Board) GetPlayerCells(playerID int) []Position {
-	cellType := protocol.CellType(playerID + 1)
 	cells := make([]Position, 0)
 	for row := 0; row < b.Size; row++ {
 		for col := 0; col < b.Size; col++ {
-			if b.Cells[row][col] == cellType {
+			// Use Player() method to extract player ID from cell value
+			if b.Cells[row][col].Player() == playerID {
 				cells = append(cells, Position{Row: row, Col: col})
 			}
 		}

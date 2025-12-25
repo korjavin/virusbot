@@ -33,17 +33,61 @@ const (
 	MsgDeclineChallenge MessageType = "decline_challenge"
 )
 
+// Cell flags (encoded in high 2 bits)
+const (
+	CellFlagNormal    byte = 0x00
+	CellFlagBase      byte = 0x10
+	CellFlagFortified byte = 0x20
+	CellFlagKilled    byte = 0x30
+
+	FlagMask   byte = 0x30
+	PlayerMask byte = 0x0F
+)
+
 // CellType represents the type of cell on the board
+// It encodes both the player ID and cell flags using bit fields:
+// - Low 4 bits (0x0F): Player ID (0=empty, 1-4=players, 5=neutral)
+// - High 2 bits (0x30): Flags (0x00=normal, 0x10=base, 0x20=fortified, 0x30=killed/neutral)
 type CellType int
 
 const (
-	CellEmpty   CellType = iota
-	CellPlayer1          // X
-	CellPlayer2          // O
-	CellPlayer3          // Triangle
-	CellPlayer4          // Square
-	CellNeutral
+	CellEmpty   CellType = 0
+	CellPlayer1 CellType = 1
+	CellPlayer2 CellType = 2
+	CellPlayer3 CellType = 3
+	CellPlayer4 CellType = 4
+	CellNeutral CellType = 5
 )
+
+// Player extracts the player ID from a CellType
+func (c CellType) Player() int {
+	return int(byte(c) & PlayerMask)
+}
+
+// Flag extracts the cell flag from a CellType
+func (c CellType) Flag() byte {
+	return byte(c) & FlagMask
+}
+
+// IsBase returns true if the cell is a base cell
+func (c CellType) IsBase() bool {
+	return c.Flag() == CellFlagBase
+}
+
+// IsFortified returns true if the cell is fortified
+func (c CellType) IsFortified() bool {
+	return c.Flag() == CellFlagFortified
+}
+
+// IsKilled returns true if the cell is killed/neutral
+func (c CellType) IsKilled() bool {
+	return c.Flag() == CellFlagKilled
+}
+
+// CanBeAttacked returns true if the cell can be attacked (only normal cells)
+func (c CellType) CanBeAttacked() bool {
+	return c.Flag() == CellFlagNormal
+}
 
 // Position represents a cell on the board
 type Position struct {

@@ -203,15 +203,26 @@ func (c *Client) handleGameStart(data []byte) error {
 	// Try to parse as new format first (without board data)
 	gameStartV2, err := protocol.ParseGameStartV2(data)
 	if err == nil && gameStartV2.Rows > 0 {
-		// New format: initialize empty board
+		// New format: initialize board with bases in corners
 		board := make([][]protocol.CellType, gameStartV2.Rows)
 		for i := range board {
 			board[i] = make([]protocol.CellType, gameStartV2.Cols)
 		}
 
-		// Create players - we need base positions for valid moves
-		// In the new protocol, base positions come from initial board state
-		// For now, create placeholder players
+		// Place bases in corners according to standard Virus game rules
+		// Player 1: top-left (0,0)
+		// Player 2: bottom-right (rows-1, cols-1)
+		// Player 3: top-right (0, cols-1)
+		// Player 4: bottom-left (rows-1, 0)
+		// Bases are marked with CellFlagBase (0x10) and cannot be attacked
+		board[0][0] = protocol.CellType(1 | int(protocol.CellFlagBase))
+		board[gameStartV2.Rows-1][gameStartV2.Cols-1] = protocol.CellType(2 | int(protocol.CellFlagBase))
+		if gameStartV2.Rows > 0 && gameStartV2.Cols > 0 {
+			board[0][gameStartV2.Cols-1] = protocol.CellType(3 | int(protocol.CellFlagBase))
+			board[gameStartV2.Rows-1][0] = protocol.CellType(4 | int(protocol.CellFlagBase))
+		}
+
+		// Create players with their standard corner base positions
 		players := []protocol.PlayerInfo{
 			{ID: 1, Name: "Player 1", Symbol: protocol.CellPlayer1, Position: protocol.Position{Row: 0, Col: 0}, IsAI: true},
 			{ID: 2, Name: "Player 2", Symbol: protocol.CellPlayer2, Position: protocol.Position{Row: gameStartV2.Rows - 1, Col: gameStartV2.Cols - 1}, IsAI: true},
@@ -229,6 +240,7 @@ func (c *Client) handleGameStart(data []byte) error {
 
 		if c.debug {
 			log.Printf("Game started: you are player %d (gameId: %s)", gameStartV2.YourPlayer, gameStartV2.GameID)
+			log.Printf("Your base is at (%d, %d)", players[gameStartV2.YourPlayer-1].Position.Row, players[gameStartV2.YourPlayer-1].Position.Col)
 		}
 	} else {
 		// Old format with board data
@@ -266,18 +278,87 @@ func (c *Client) handleMoveMade(data []byte) error {
 	}
 
 	c.mu.Lock()
-	if c.gameState != nil && c.gameState.Board != nil && len(c.gameState.Board) > moveMade.Row {
-		if len(c.gameState.Board[moveMade.Row]) > moveMade.Col {
-			// Mark the cell with the player's cell type
-			cellType := protocol.CellType(moveMade.Player)
-			c.gameState.Board[moveMade.Row][moveMade.Col] = cellType
-		}
-		// Only change turn when movesLeft reaches 0
-		if moveMade.MovesLeft == 0 {
-			c.gameState.CurrentPlayer = (c.gameState.CurrentPlayer + 1) % 2
+	defer c.mu.Unlock()
+
+	if c.gameState == nil {
+		log.Printf("handleMoveMade: gameState is nil")
+		return nil
+	}
+	if c.gameState.Board == nil {
+		log.Printf("handleMoveMade: Board is nil")
+		return nil
+	}
+
+	boardRows := len(c.gameState.Board)
+	boardCols := 0
+	if boardRows > 0 {
+		boardCols = len(c.gameState.Board[0])
+	}
+
+	if boardRows <= moveMade.Row {
+		log.Printf("handleMoveMade: Board has %d rows, but move row %d is out of bounds", boardRows, moveMade.Row)
+		return nil
+	}
+	if boardCols <= moveMade.Col {
+		log.Printf("handleMoveMade: Board row %d has %d cols, but move col %d is out of bounds", moveMade.Row, boardCols, moveMade.Col)
+		return nil
+	}
+
+	// Mark the cell with the player's cell type
+	// If the cell was already occupied (attack), mark it as fortified
+	// If it was empty (place), mark it as normal
+	wasOccupied := c.gameState.Board[moveMade.Row][moveMade.Col] != protocol.CellEmpty
+	var cellType protocol.CellType
+	if wasOccupied {
+		// Attack move - cell becomes fortified (cannot be re-attacked)
+		cellType = protocol.CellType(moveMade.Player | int(protocol.CellFlagFortified))
+	} else {
+		// Place move - cell becomes normal (can be attacked)
+		cellType = protocol.CellType(moveMade.Player | int(protocol.CellFlagNormal))
+	}
+	c.gameState.Board[moveMade.Row][moveMade.Col] = cellType
+
+	moveTypeStr := "place"
+	if wasOccupied {
+		moveTypeStr = "attack (fortified)"
+	}
+	log.Printf("handleMoveMade: %s - Updated board[%d][%d] = %d (player %d, flag %d)", moveTypeStr, moveMade.Row, moveMade.Col, cellType, moveMade.Player, cellType.Flag())
+
+	// Update base position for player if not yet set
+	// The first move for each player establishes their base position
+	if c.gameState.Players != nil {
+		for i := range c.gameState.Players {
+			if c.gameState.Players[i].ID == moveMade.Player {
+				// Check if this is the first cell for this player (base position)
+				cellCount := 0
+				for r := 0; r < boardRows; r++ {
+					for col := 0; col < boardCols; col++ {
+						// Use Player() method to compare player IDs (ignores flags)
+						if c.gameState.Board[r][col].Player() == moveMade.Player {
+							cellCount++
+						}
+					}
+				}
+				// If this is the first cell, it's the base
+				if cellCount == 1 {
+					c.gameState.Players[i].Position = protocol.Position{
+						Row: moveMade.Row,
+						Col: moveMade.Col,
+					}
+					if c.debug {
+						log.Printf("Set base position for player %d to (%d, %d)", moveMade.Player, moveMade.Row, moveMade.Col)
+					}
+				}
+				break
+			}
 		}
 	}
-	c.mu.Unlock()
+
+	// Only change turn when movesLeft reaches 0
+	if moveMade.MovesLeft == 0 {
+		log.Printf("handleMoveMade: Turn changing from %d to %d (movesLeft=0)", c.gameState.CurrentPlayer, (c.gameState.CurrentPlayer+1)%2)
+		c.gameState.CurrentPlayer = (c.gameState.CurrentPlayer + 1) % 2
+	}
 
 	if c.debug {
 		log.Printf("Player %d moved to (%d, %d), movesLeft=%d", moveMade.Player, moveMade.Row, moveMade.Col, moveMade.MovesLeft)
@@ -460,9 +541,9 @@ func (c *Client) MakeMove(row, col int) error {
 
 	// Send with correct format (no nested data field)
 	msg := map[string]interface{}{
-		"type":  protocol.MsgMove,
-		"row":   row,
-		"col":   col,
+		"type":   protocol.MsgMove,
+		"row":    row,
+		"col":    col,
 		"gameId": gameID,
 	}
 
@@ -486,6 +567,52 @@ func (c *Client) MakeMove(row, col int) error {
 	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		return fmt.Errorf("failed to send move: %w", err)
 	}
+
+	// Update local board state immediately after sending move
+	c.mu.Lock()
+	if c.gameState != nil && c.gameState.Board != nil {
+		// Update board with our move
+		// Check if it was an attack or a place
+		wasOccupied := c.gameState.Board[row][col] != protocol.CellEmpty
+		var cellType protocol.CellType
+		if wasOccupied {
+			// Attack move - cell becomes fortified
+			cellType = protocol.CellType(c.gameState.YourPlayerID | int(protocol.CellFlagFortified))
+		} else {
+			// Place move - cell becomes normal
+			cellType = protocol.CellType(c.gameState.YourPlayerID | int(protocol.CellFlagNormal))
+		}
+		if row >= 0 && row < len(c.gameState.Board) && col >= 0 && col < len(c.gameState.Board[row]) {
+			c.gameState.Board[row][col] = cellType
+
+			// If this is our first move, set it as our base position
+			if c.gameState.Players != nil {
+				for i := range c.gameState.Players {
+					if c.gameState.Players[i].ID == c.gameState.YourPlayerID {
+						// Count cells to see if this is the first
+						cellCount := 0
+						for r := 0; r < len(c.gameState.Board); r++ {
+							for cl := 0; cl < len(c.gameState.Board[r]); cl++ {
+								// Use Player() method to compare player IDs (ignores flags)
+								if c.gameState.Board[r][cl].Player() == c.gameState.YourPlayerID {
+									cellCount++
+								}
+							}
+						}
+						// If this is the first cell, set base position
+						if cellCount == 1 {
+							c.gameState.Players[i].Position = protocol.Position{Row: row, Col: col}
+							if c.debug {
+								log.Printf("Set OUR base position to (%d, %d)", row, col)
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+	c.mu.Unlock()
 
 	return nil
 }
